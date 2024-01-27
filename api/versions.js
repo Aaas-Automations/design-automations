@@ -1,6 +1,7 @@
 const axios = require('axios');
 const fs = require('fs');
 const { parse } = require('json2csv');
+require('dotenv').config();
 
 const figmaToken = process.env.FIGMA_TOKEN;
 const fileKey = process.env.FILE_KEY;
