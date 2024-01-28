@@ -1,33 +1,28 @@
-// /api/figmaUpdates.js
-
 const axios = require('axios');
+const fs = require('fs');
+const { parse } = require('json2csv');
 require('dotenv').config();
 
+const figmaToken = process.env.FIGMA_TOKEN;
+const fileKey = process.env.FILE_KEY;
+const headers = { 'X-Figma-Token': figmaToken };
 
+const getVersions = async () => {
+  const versionsResponse = await axios.get(`https://api.figma.com/v1/files/${fileKey}/versions`, { headers });
+  return versionsResponse.data.versions;
+};
+
+// Serverless function to handle the GET request
 module.exports = async (req, res) => {
   try {
-    // Example: Making a GET request to a placeholder API
-    const response = await axios.get('https://jsonplaceholder.typicode.com/todos/1');
+    // Use the getVersions function to fetch data
+    const versions = await getVersions();
 
-    // Creating a simple message with data from the response
-    const message = {
-      message: 'GET request successful',
-      data: response.data
-    };
-
-    // Sending the message as JSON
-    res.status(200).json(message);
+    // Send the fetched data as JSON response
+    res.status(200).json({ versions });
   } catch (error) {
-    console.error('Error making GET request:', error);
+    console.error('Error fetching versions from Figma:', error);
     res.status(500).send('Internal Server Error');
   }
 };
-
-
-
-
-
-
-
-
 
