@@ -8,87 +8,97 @@ const fileKey = process.env.FILE_KEY;
 const headers = { 'X-Figma-Token': figmaToken };
 
 const getVersions = async () => {
-  const versionsResponse = await axios.get(`https://api.figma.com/v1/files/${fileKey}/versions`, { headers });
-  return versionsResponse.data.versions;
+  try {
+    const versionsResponse = await axiosWrapper.getWithRetries(`https://api.figma.com/v1/files/${fileKey}/versions`, { headers });
+    return versionsResponse.data.versions;
+  } catch (error) {
+    // Handle error and retries here
+  }
 };
 
 const getFileAtVersion = async (version) => {
-  const fileResponse = await axios.get(`https://api.figma.com/v1/files/${fileKey}?version=${version}`, { headers });
-  return fileResponse.data.document;
+  try {
+    const fileResponse = await axiosWrapper.getWithRetries(`https://api.figma.com/v1/files/${fileKey}?version=${version}`, { headers });
+    return fileResponse.data.document;
+  } catch (error) {
+    // Handle error and retries here
+  }
 };
 
 const getComments = async () => {
-  const commentsResponse = await axios.get(`https://api.figma.com/v1/files/${fileKey}/comments`, { headers });
-  return commentsResponse.data.comments;
+  try {
+    const commentsResponse = await axiosWrapper.getWithRetries(`https://api.figma.com/v1/files/${fileKey}/comments`, { headers });
+    return commentsResponse.data.comments;
+  } catch (error) {
+  }
 };
 
 const parseFrames = (node) => {
     let frames = [];
     
-    if (node.type === 'FRAME' || node.type === 'COMPONENT') {
+    if (node.type === 'FRAME' || node.type === ') {
       frames.push(node);
     }
     
     if (node.children && node.children.length > 0) {
       node.children.forEach(child => {
-        frames = frames.concat(parseFrames(child)); // Recursively parse children
+        frames = [...frames, ...parseFrames(child)]; // Recursively parse children
       });
     }
     
     return frames;
 };
 
+const fetchDocumentStructures = async (version) => {
+    const docResponse = await getFileAtVersion(version.id);
+    return parseFrames(docResponse.data.document);
+};
+
+const fetchComments = async () => {
+    const commentsResponse = await ();
+    const commentsResponse = await getComments();
+    return commentsResponse.data.comments;
+};
 
 const findUpdatedFrames = async (currentVersion, previousVersion, currentTime, past24HoursTime) => {
-    // Fetch the document structures for the current and previous versions
-    const currentDoc = await getFileAtVersion(currentVersion.id);
-    const previousDoc = await getFileAtVersion(previousVersion.id);
-  
-    // Parse the frames from the document structures
-    const currentFrames = parseFrames(currentDoc);
-    const previousFrames = parseFrames(previousDoc);
-  
-    // Compare the frames to find which have been updated
-    const updatedFrames = compareFrames(currentFrames, previousFrames);
-  
-    // Fetch the comments for the file
-    const comments = await getComments();
-  
-    // Filter comments to only include those within the last 24 hours
-    const recentComments = comments.filter(comment => {
-      const commentTime = new Date(comment.created_at);
-      return commentTime >= past24HoursTime && commentTime <= currentTime;
-    });
-  
-    // Create a set of node_ids that have recent comments
-    const frameIdsWithRecentComments = new Set(recentComments.map(comment => comment.node_id));
-  
-    // Filter out updated frames that have recent comments
-    const updatedFramesWithoutRecentComments = updatedFrames.filter(frame => 
-      !frameIdsWithRecentComments.has(frame.node_id)
-    );
-  
-    return updatedFramesWithoutRecentComments;
-  };
-  
+    const currentFrames = await fetchDocumentStructures(currentVersion);
+    const previousFrames = await fetchDocumentStructures(previousVersion);
 
-// Main execution function
+    const updatedFrames = compareFrames(currentFrames, previousFrames);
+
+    const comments = await ();
+    const comments = await fetchComments();
+
+    const recentComments = comments.filter(comment => {
+        const commentTime = new Date(comment.created_at);
+        return commentTime >= past24HoursTime && commentTime <= currentTime;
+    });
+
+    const frameIdsWithRecentComments = new Set(recentComments.map(comment => comment.node_id));
+
+    const updatedFramesWithoutRecentComments = updatedFrames.filter(frame => 
+        !frameIdsWithRecentComments.has(frame.node_id)
+    );
+
+    return updatedFramesWithoutRecentComments;
+};
+
 const main = async () => {
   try {
     const versions = await getVersions();
     const now = new Date();
     const yesterday = new Date(now.getTime() - (24 * 60 * 60 * 1000)); // 24 hours ago
 
-    // Filter versions to get those from the last 24 hours
     const recentVersions = versions.filter(version => {
       const createdAt = new Date(version.created_at);
       return createdAt >= yesterday;
     });
 
-    const comments = await getComments();
+    const comments = await fetchComments();
+    const commentsPromise = fetchComments();
 
-    // Filter comments to get those from the last 24 hours
     const recentComments = comments.filter(comment => {
+    const recentComments = (await commentsPromise).filter(comment => {
       const createdAt = new Date(comment.created_at);
       return createdAt >= yesterday;
     });
@@ -97,20 +107,26 @@ const main = async () => {
 
     for (const version of recentVersions) {
       const file = await getFileAtVersion(version.id);
+    let updatedFramesPromises = recentVersions.map(version => getFileAtVersion(version.id).then(file => {
       const frames = parseFrames(file);
       updatedFrames = updatedFrames.concat(findUpdatedFrames(versions, frames, recentComments));
     }
+      return findUpdatedFrames(versions, frames, recentComments);
+    }));
 
-    // Remove duplicates from updatedFrames if necessary
-    // ...
+    let updatedFrames = (await Promise.all(updatedFramesPromises)).flat();
 
-    // Save to CSV
-    const fields = ['name', 'id']; // Add all fields you want to include in the CSV
+    const fields = ['name', 'id'];
     const opts = { fields };
     const csv = parse(updatedFrames, opts);
 
-    fs.writeFileSync('updated_frames.csv', csv);
-    console.log('Updated frames saved to updated_frames.csv');
+    fs.writeFile('updated_frames.csv', csv, (err) => {
+      if (err) {
+        console.error('An error occurred:', err);
+      } else {
+        console.log('Updated frames saved to updated_frames.csv');
+      }
+    });
   } catch (error) {
     console.error('An error occurred:', error);
   }
